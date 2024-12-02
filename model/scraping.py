@@ -9,6 +9,15 @@ import json
 
 
 def scrape_letterboxd(username: str) -> dict:
+    """
+    Scrape the movies and ratings from a Letterboxd user profile.
+
+    Args:
+    - username: The Letterboxd username to scrape movie data
+
+    Returns:
+    - Dictionary containing movie names, slugs, ratings, and images for the given user
+    """
     # Define the return dictionary
     user_data_dict = {"names": [], "slugs": [], "ratings": [], "images": []}
     # Define the regex patterns for name, slug, and rating which will
@@ -80,6 +89,49 @@ def scrape_letterboxd(username: str) -> dict:
     return user_data_dict
 
 
+def scrape_letterboxd_picture(movie_slug: str):
+    """
+    Scrapes the poster image URL for a specific movie from Letterboxd using its slug.
+
+    Args:
+    - movie_slug: The slug part of the movie URL on Letterboxd (e.g., 'joker-folie-a-deux' for 'letterboxd.com/film/joker-folie-a-deux/')
+
+    Returns:
+    - Poster image URL for the movie.
+    """
+    url = f"https://letterboxd.com/film/{movie_slug}/"
+    response = requests.get(url)
+
+    if response.status_code != 200:
+        raise Exception(f"Failed to retrieve data. Status code: {response.status_code}")
+
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    # Extract JSON-LD data which contains movie details
+    script_data = soup.select_one('script[type="application/ld+json"]')
+    if not script_data:
+        raise ValueError("Movie data not found on the page.")
+
+    # Get the content of the script and strip the CDATA tags
+    raw_data = script_data.string
+    cleaned_data = re.sub(r"/\* <!\[CDATA\[ \*/|/\* \]\]> \*/", "", raw_data).strip()
+
+    # Parse JSON data
+    try:
+        movie_data = json.loads(cleaned_data)
+    except json.JSONDecodeError as e:
+        print("Error decoding JSON:", str(e))
+        return None
+
+    # Make the soup object to scrap the websites html
+    film_soup = BeautifulSoup(requests.get(url).text, "html.parser")
+    image_script_data = film_soup.select_one('script[type="application/ld+json"]')
+    json_data = json.loads(image_script_data.text.split(" */")[1].split("/* ]]>")[0])
+    poster_url = json_data.get("image", "")
+
+    return poster_url
+
+
 def scrape_letterboxd_movie(movie_slug: str):
     """
     Scrapes details of a specific movie from Letterboxd using its slug.
@@ -122,7 +174,12 @@ def scrape_letterboxd_movie(movie_slug: str):
     genres = movie_data.get("genre", [])
     director = movie_data.get("director", [{}])[0].get("name", "N/A")
     rating = movie_data.get("aggregateRating", {}).get("ratingValue", 0.0)
-    poster_url = movie_data.get("image", "https://via.placeholder.com/150")
+
+    # Make the soup object to scrap the websites html
+    film_soup = BeautifulSoup(requests.get(url).text, "html.parser")
+    image_script_data = film_soup.select_one('script[type="application/ld+json"]')
+    json_data = json.loads(image_script_data.text.split(" */")[1].split("/* ]]>")[0])
+    poster_url = json_data.get("image", "")
 
     # Extract actors and create Wikipedia links for each
     actors = [
@@ -170,6 +227,7 @@ def scrape_letterboxd_movie(movie_slug: str):
 
     # Return the results in a dictionary
     return {
+        "id": movie_slug,
         "title": title,
         "year": year,
         "genres": genres,
@@ -182,7 +240,31 @@ def scrape_letterboxd_movie(movie_slug: str):
     }
 
 
+def search_movies_from_csv(query):  # write the comments for the function
+    """
+    Search for movies in the dataset based on a query string.
+
+    Args:
+    - query: The search query string to match against movie titles.
+
+    Returns:
+    - List of dictionaries containing movie details for each matching movie.
+    """
+    df = pd.read_csv("model/data/movies.csv")
+    filtered = df[df["movie_title"].str.contains(query, case=False, na=False)]
+    return filtered.to_dict("records")
+
+
 def scrape_recommended_movies(movie_slugs):
+    """
+    Scrape details of recommended movies from Letterboxd using their slugs.
+
+    Args:
+    - movie_slugs: List of movie slugs to scrape details for.
+
+    Returns:
+    - List of dictionaries containing movie details for each recommended movie.
+    """
     movie_data = []  # List to hold data for each recommended movie
 
     for movie_slug in movie_slugs:
@@ -226,6 +308,15 @@ def scrape_recommended_movies(movie_slugs):
 
 # Method to scrape a given letterboxd username and return a dataframe with the movie names and the star ratings.
 def scrape_and_make_dataframe(username: str) -> pd.DataFrame:
+    """
+    Scrape the movies and ratings from a Letterboxd user profile and return a Pandas DataFrame.
+
+    Args:
+    - username: The Letterboxd username to scrape movie data
+
+    Returns:
+    - Pandas DataFrame containing movie names, ratings, and images for the given user
+    """
     # Scrape the movies and ratings from the given letterboxd username
     user_data_dict = scrape_letterboxd(username)
 
